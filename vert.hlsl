@@ -1,6 +1,12 @@
+struct CubeData
+{
+  float3 pos;
+  float4 color;
+};
+StructuredBuffer<CubeData> CubesBuffer : register(t0, space0);
+
 cbuffer UBO : register(b0, space1)
 {
-  matrix model;
   matrix view;
   matrix proj;
 };
@@ -8,8 +14,7 @@ cbuffer UBO : register(b0, space1)
 struct VSInput
 {
   float3 inPosition : POSITION;
-  float4 inColor : COLOR;
-  uint instanceID : SV_InstanceID;
+  uint instanceId : SV_InstanceID;
 };
 
 struct VSOutput
@@ -18,15 +23,26 @@ struct VSOutput
   float4 Position : SV_Position;
 };
 
+float4x4 CreateTranslationMatrix(float3 position)
+{
+  return float4x4(
+      1, 0, 0, position.x,
+      0, 1, 0, position.y,
+      0, 0, 1, position.z,
+      0, 0, 0, 1);
+}
 VSOutput main(VSInput input)
 {
   VSOutput output;
-  output.outColor = input.inColor;
+  CubeData cube = CubesBuffer[input.instanceId];
 
-  // Transform the vertex position using the instance-specific model matrix
-  float4 worldPos = mul(float4(input.inPosition, 1.0), model);
-  float4 viewPos = mul(worldPos, view);
-  float4 clipPos = mul(viewPos, proj);
+  output.outColor = cube.color;
+
+  float4 pos = float4(input.inPosition, 1.0);
+  float4x4 model = CreateTranslationMatrix(cube.pos);
+  float4 worldPos = mul(model, pos);    // Changed order
+  float4 viewPos = mul(view, worldPos); // Changed order
+  float4 clipPos = mul(proj, viewPos);  // Changed order
 
   output.Position = clipPos;
   return output;
