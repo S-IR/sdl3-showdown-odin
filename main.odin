@@ -13,9 +13,21 @@ GRID_SIZE :: 10
 cubes := [GRID_SIZE * GRID_SIZE]CubeInfo{}
 
 CubeInfo :: struct #packed {
-	pos: matrix[4, 4]f32,
+	pos:   matrix[4, 4]f32,
 	// _pad0: f32,
-	col: vec4,
+	color: vec4,
+}
+
+
+LightInfo :: struct {
+	pos:   matrix[4, 4]f32,
+	// _pad0: f32,
+	color: vec4,
+}
+
+light := CubeInfo {
+	pos   = linalg.matrix4_translate_f32({5, 0, 5}),
+	color = {.5, .5, .5, 1},
 }
 
 sdl_panic_if :: proc(cond: bool, message: string = "") {
@@ -53,7 +65,7 @@ main :: proc() {
 
 	vertexShader := load_shader(
 		device,
-		filepath.join({"resources", "shader-binaries", "shader.vert.spv"}),
+		filepath.join({"resources", "shader-binaries", "cube.vert.spv"}),
 		0,
 		1,
 		1,
@@ -63,7 +75,7 @@ main :: proc() {
 	sdl_panic_if(vertexShader == nil, "Vertex shader is null")
 	fragmentShader := load_shader(
 		device,
-		filepath.join({"resources", "shader-binaries", "shader.frag.spv"}),
+		filepath.join({"resources", "shader-binaries", "cube.frag.spv"}),
 		0,
 		2,
 		0,
@@ -71,10 +83,7 @@ main :: proc() {
 	)
 	sdl_panic_if(fragmentShader == nil, "Frag shader is null")
 
-
-	pipeline := sdl.CreateGPUGraphicsPipeline(
-	device,
-	sdl.GPUGraphicsPipelineCreateInfo {
+	cubePipelineInfo := sdl.GPUGraphicsPipelineCreateInfo {
 		target_info = {
 			num_color_targets         = 1,
 			color_target_descriptions = raw_data(
@@ -126,12 +135,28 @@ main :: proc() {
 		primitive_type = .TRIANGLELIST,
 		vertex_shader = vertexShader,
 		fragment_shader = fragmentShader,
-	},
-	)
-	sdl_panic_if(pipeline == nil, "could not create pipeline")
+	}
+	cubePipeline := sdl.CreateGPUGraphicsPipeline(device, cubePipelineInfo)
+	sdl_panic_if(cubePipeline == nil, "could not create pipeline")
 
 	sdl.ReleaseGPUShader(device, vertexShader)
 	sdl.ReleaseGPUShader(device, fragmentShader)
+
+
+	lightFragShader := load_shader(
+		device,
+		filepath.join({"resources", "shader-binaries", "lightCube.frag.spv"}),
+		0,
+		1,
+		0,
+		0,
+	)
+	lightCubePipelineInfo := cubePipelineInfo
+	lightCubePipelineInfo.fragment_shader = lightFragShader
+	lightingPipeline := sdl.CreateGPUGraphicsPipeline(device, lightCubePipelineInfo)
+	sdl_panic_if(lightingPipeline == nil, "could not create light cube pipeline")
+	sdl.ReleaseGPUShader(device, lightFragShader)
+
 
 	depthTexture := sdl.CreateGPUTexture(
 		device,
@@ -149,10 +174,10 @@ main :: proc() {
 	defer sdl.ReleaseGPUTexture(device, depthTexture)
 
 
-	vertexBuffer, indicesBuffer := upload_cube_vertices()
+	cubeVertexBuffer, cubeIndicesBuffer := upload_cube_vertices()
 	defer {
-		sdl.ReleaseGPUBuffer(device, vertexBuffer)
-		sdl.ReleaseGPUBuffer(device, indicesBuffer)
+		sdl.ReleaseGPUBuffer(device, cubeVertexBuffer)
+		sdl.ReleaseGPUBuffer(device, cubeIndicesBuffer)
 	}
 	cubesBuffer := sdl.CreateGPUBuffer(
 		device,
@@ -168,28 +193,23 @@ main :: proc() {
 				cubes[x * GRID_SIZE + z] = CubeInfo{transformation, {.2, .2, .2, 1}}
 			}
 		}
-		cubesTransferBuffer := sdl.CreateGPUTransferBuffer(
-			device,
-			sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = size_of(cubes)},
-		)
-
-		cubeInfoPtr := sdl.MapGPUTransferBuffer(device, cubesTransferBuffer, true)
-		sdl.memcpy(cubeInfoPtr, raw_data(&cubes), size_of(cubes))
-		sdl.UnmapGPUTransferBuffer(device, cubesTransferBuffer)
-
-		uploadCmdBuf := sdl.AcquireGPUCommandBuffer(device)
-		copyPass := sdl.BeginGPUCopyPass(uploadCmdBuf)
-		sdl.UploadToGPUBuffer(
-			copyPass,
-			sdl.GPUTransferBufferLocation{offset = 0, transfer_buffer = cubesTransferBuffer},
-			sdl.GPUBufferRegion{buffer = cubesBuffer, offset = 0, size = size_of(cubes)},
-			true,
-		)
-		sdl.EndGPUCopyPass(copyPass)
-		sdl_panic_if(sdl.SubmitGPUCommandBuffer(uploadCmdBuf) == false)
-
-
+		load_into_gpu_buffer(cubesBuffer, raw_data(&cubes), size_of(cubes))
 	}
+
+
+	lighting: LightInfo = {
+		pos   = linalg.matrix4_translate_f32({5, 5, 5}),
+		color = {.5, .5, .5, 1},
+	}
+
+	lightCubeBuffer := sdl.CreateGPUBuffer(
+		device,
+		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(cubes)},
+	)
+	defer sdl.ReleaseGPUBuffer(device, lightCubeBuffer)
+	load_into_gpu_buffer(lightCubeBuffer, &lighting, size_of(lighting))
+
+
 	quit := false
 	lastTime := time.now()
 
@@ -198,8 +218,6 @@ main :: proc() {
 	frameTime := f64(time.Second) / f64(FPS) // Target time per frame in nanoseconds
 	frameDuration := time.Duration(frameTime) // Convert to Duration type
 	camera := Camera_new()
-
-	lighting := [2]vec3{{5, 5, 5}, {.5, .5, .5}}
 	lightAddDir: f32 = 1
 
 	movementSpeed := 5.0
@@ -279,44 +297,77 @@ main :: proc() {
 		}
 
 		renderPass := sdl.BeginGPURenderPass(cmdBuf, &colorTargetInfo, 1, &depthStencilTargetInfo)
-		sdl.BindGPUGraphicsPipeline(renderPass, pipeline)
-
-		Camera_frame_update(&camera, cmdBuf)
-		sdl.BindGPUVertexStorageBuffers(renderPass, 0, &cubesBuffer, 1)
-		sdl.BindGPUVertexBuffers(
-			renderPass,
-			0,
-			raw_data([]sdl.GPUBufferBinding{{buffer = vertexBuffer, offset = 0}}),
-			1,
-		)
-		sdl.BindGPUIndexBuffer(renderPass, {buffer = indicesBuffer, offset = 0}, ._16BIT)
 
 
-		planes := [2]f32{nearPlane, farPlane}
-		sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
+		{
+			sdl.BindGPUGraphicsPipeline(renderPass, cubePipeline)
+			Camera_frame_update(&camera, cmdBuf)
 
-		lighting[1] += f32(dt) * 00.1 * lightAddDir
-		if lighting[1].x >= 1 {
-			lighting[1] = {1, 1, 1}
-			lightAddDir *= -1
+			sdl.BindGPUVertexStorageBuffers(renderPass, 0, &cubesBuffer, 1)
+			sdl.BindGPUVertexBuffers(
+				renderPass,
+				0,
+				raw_data([]sdl.GPUBufferBinding{{buffer = cubeVertexBuffer, offset = 0}}),
+				1,
+			)
+			sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeIndicesBuffer, offset = 0}, ._16BIT)
+
+
+			planes := [2]f32{nearPlane, farPlane}
+			sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
+
+			lighting.color += f32(dt) * 00.1 * lightAddDir
+			if lighting.color.x >= 1 {
+				lighting.color = {1, 1, 1, 1}
+				lightAddDir *= -1
+			}
+
+			if lighting.color.x <= 0 {
+				lighting.color = {0, 0, 0, 1}
+				lightAddDir *= -1
+			}
+			lighting.color[3] = 1
+
+			sdl.PushGPUFragmentUniformData(cmdBuf, 1, &lighting, size_of(lighting))
+			sdl.DrawGPUIndexedPrimitives(
+				renderPass,
+				TOTAL_NUMBER_OF_INDICES,
+				GRID_SIZE * GRID_SIZE,
+				0,
+				0,
+				0,
+			)
+		}
+		{
+
+			sdl.BindGPUGraphicsPipeline(renderPass, lightingPipeline)
+			Camera_frame_update(&camera, cmdBuf)
+
+			sdl.BindGPUVertexStorageBuffers(renderPass, 0, &lightCubeBuffer, 1)
+
+			sdl.BindGPUVertexBuffers(
+				renderPass,
+				0,
+				raw_data([]sdl.GPUBufferBinding{{buffer = cubeVertexBuffer, offset = 0}}),
+				1,
+			)
+			sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeIndicesBuffer, offset = 0}, ._16BIT)
+
+			planes := [2]f32{nearPlane, farPlane}
+			sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
+
+			sdl.DrawGPUIndexedPrimitives(
+				renderPass,
+				TOTAL_NUMBER_OF_INDICES,
+				GRID_SIZE * GRID_SIZE,
+				0,
+				0,
+				0,
+			)
+
+
 		}
 
-		if lighting[1].x <= 0 {
-			lighting[1] = {0, 0, 0}
-			lightAddDir *= -1
-		}
-
-
-		sdl.PushGPUFragmentUniformData(cmdBuf, 1, raw_data(&lighting), size_of(lighting))
-
-		sdl.DrawGPUIndexedPrimitives(
-			renderPass,
-			TOTAL_NUMBER_OF_INDICES,
-			GRID_SIZE * GRID_SIZE,
-			0,
-			0,
-			0,
-		)
 		sdl.EndGPURenderPass(renderPass)
 
 		frameEnd := time.now()

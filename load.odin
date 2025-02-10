@@ -1,13 +1,13 @@
 package main
 import "core:fmt"
 import "core:strings"
-import s "vendor:sdl3"
+import sdl "vendor:sdl3"
 load_shader :: proc(
-	device: ^s.GPUDevice,
+	device: ^sdl.GPUDevice,
 	shaderPath: string,
 	samplerCount, uniformBufferCount, storageBufferCount, storageTextureCount: u32,
-) -> ^s.GPUShader {
-	stage: s.GPUShaderStage
+) -> ^sdl.GPUShader {
+	stage: sdl.GPUShaderStage
 	if strings.contains(shaderPath, ".vert") {
 		stage = .VERTEX
 	} else if strings.contains(shaderPath, ".frag") {
@@ -18,7 +18,7 @@ load_shader :: proc(
 		)
 	}
 
-	format := s.GetGPUShaderFormats(device)
+	format := sdl.GetGPUShaderFormats(device)
 	entrypoint: cstring
 	if format == {.SPIRV} || format == {.DXIL} {
 		entrypoint = "main"
@@ -27,13 +27,13 @@ load_shader :: proc(
 	}
 
 	codeSize: uint
-	code := s.LoadFile(strings.clone_to_cstring(shaderPath, context.temp_allocator), &codeSize)
+	code := sdl.LoadFile(strings.clone_to_cstring(shaderPath, context.temp_allocator), &codeSize)
 	sdl_panic_if(code == nil)
-	defer s.free(code)
+	defer sdl.free(code)
 
-	return s.CreateGPUShader(
+	return sdl.CreateGPUShader(
 		device,
-		s.GPUShaderCreateInfo {
+		sdl.GPUShaderCreateInfo {
 			code = transmute([^]u8)(code),
 			code_size = codeSize,
 			entrypoint = entrypoint,
@@ -45,5 +45,28 @@ load_shader :: proc(
 			num_storage_textures = storageTextureCount,
 		},
 	)
+
+}
+
+load_into_gpu_buffer :: proc(gpuBuffer: ^sdl.GPUBuffer, data: rawptr, size: uint) {
+	transferBuffer := sdl.CreateGPUTransferBuffer(
+		device,
+		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(size)},
+	)
+
+	infoPtr := sdl.MapGPUTransferBuffer(device, transferBuffer, true)
+	sdl.memcpy(infoPtr, data, size)
+	sdl.UnmapGPUTransferBuffer(device, transferBuffer)
+
+	uploadCmdBuf := sdl.AcquireGPUCommandBuffer(device)
+	copyPass := sdl.BeginGPUCopyPass(uploadCmdBuf)
+	sdl.UploadToGPUBuffer(
+		copyPass,
+		sdl.GPUTransferBufferLocation{offset = 0, transfer_buffer = transferBuffer},
+		sdl.GPUBufferRegion{buffer = gpuBuffer, offset = 0, size = u32(size)},
+		true,
+	)
+	sdl.EndGPUCopyPass(copyPass)
+	sdl_panic_if(sdl.SubmitGPUCommandBuffer(uploadCmdBuf) == false)
 
 }
