@@ -31,8 +31,16 @@ sdl_panic_if :: proc(cond: bool, message: string = "") {
 
 main :: proc() {
 	sdl_panic_if(sdl.Init({.VIDEO}) == false)
-	window = sdl.CreateWindow("Hello triangle", i32(screenWidth), i32(screenHeight), {.RESIZABLE})
+	window = sdl.CreateWindow(
+		"Hello triangle",
+		i32(screenWidth),
+		i32(screenHeight),
+		{.RESIZABLE, .FULLSCREEN},
+	)
+	sdl_panic_if(window == nil)
 	defer sdl.DestroyWindow(window)
+
+	sdl.GetWindowSizeInPixels(window, &screenWidth, &screenHeight)
 
 	device = sdl.CreateGPUDevice({.SPIRV}, true, nil)
 	sdl_panic_if(device == nil)
@@ -57,7 +65,7 @@ main :: proc() {
 		device,
 		filepath.join({"resources", "shader-binaries", "shader.frag.spv"}),
 		0,
-		1,
+		2,
 		0,
 		0,
 	)
@@ -124,7 +132,6 @@ main :: proc() {
 
 	sdl.ReleaseGPUShader(device, vertexShader)
 	sdl.ReleaseGPUShader(device, fragmentShader)
-	sdl.GetWindowSizeInPixels(window, &screenWidth, &screenHeight)
 
 	depthTexture := sdl.CreateGPUTexture(
 		device,
@@ -158,11 +165,7 @@ main :: proc() {
 		for x in 0 ..< GRID_SIZE {
 			for z in 0 ..< GRID_SIZE {
 				transformation := linalg.matrix4_translate_f32({f32(x), -1.0, f32(z)})
-
-				cubes[x * GRID_SIZE + z] = CubeInfo {
-					transformation,
-					{rand.float32(), rand.float32(), rand.float32(), 1},
-				}
+				cubes[x * GRID_SIZE + z] = CubeInfo{transformation, {.2, .2, .2, 1}}
 			}
 		}
 		cubesTransferBuffer := sdl.CreateGPUTransferBuffer(
@@ -195,6 +198,9 @@ main :: proc() {
 	frameTime := f64(time.Second) / f64(FPS) // Target time per frame in nanoseconds
 	frameDuration := time.Duration(frameTime) // Convert to Duration type
 	camera := Camera_new()
+
+	lighting := [2]vec3{{5, 5, 5}, {.5, .5, .5}}
+	lightAddDir: f32 = 1
 
 	movementSpeed := 5.0
 	for !quit {
@@ -289,6 +295,20 @@ main :: proc() {
 		planes := [2]f32{nearPlane, farPlane}
 		sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
 
+		lighting[1] += f32(dt) * 00.1 * lightAddDir
+		if lighting[1].x >= 1 {
+			lighting[1] = {1, 1, 1}
+			lightAddDir *= -1
+		}
+
+		if lighting[1].x <= 0 {
+			lighting[1] = {0, 0, 0}
+			lightAddDir *= -1
+		}
+
+
+		sdl.PushGPUFragmentUniformData(cmdBuf, 1, raw_data(&lighting), size_of(lighting))
+
 		sdl.DrawGPUIndexedPrimitives(
 			renderPass,
 			TOTAL_NUMBER_OF_INDICES,
@@ -309,7 +329,7 @@ main :: proc() {
 		}
 
 		// Calculate actual dt for next frame
-		dt = time.duration_milliseconds(time.since(lastTime))
+		dt = time.duration_milliseconds(time.since(lastTime)) * 0.001
 		lastTime = time.now()
 	}
 
