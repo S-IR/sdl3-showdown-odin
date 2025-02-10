@@ -125,6 +125,7 @@ main :: proc() {
 	sdl.ReleaseGPUShader(device, vertexShader)
 	sdl.ReleaseGPUShader(device, fragmentShader)
 	sdl.GetWindowSizeInPixels(window, &screenWidth, &screenHeight)
+
 	depthTexture := sdl.CreateGPUTexture(
 		device,
 		sdl.GPUTextureCreateInfo {
@@ -209,6 +210,29 @@ main :: proc() {
 				if e.key.key == sdl.K_ESCAPE {
 					quit = true
 				}
+			case .WINDOW_RESIZED:
+				screenWidth, screenHeight := e.window.data1, e.window.data2
+
+				sdl.SetWindowSize(window, screenWidth, screenHeight)
+
+
+				sdl.ReleaseGPUTexture(device, depthTexture)
+				depthTexture = sdl.CreateGPUTexture(
+					device,
+					sdl.GPUTextureCreateInfo {
+						type = .D2,
+						width = u32(screenWidth),
+						height = u32(screenHeight),
+						layer_count_or_depth = 1,
+						num_levels = 1,
+						sample_count = ._1,
+						format = .D24_UNORM,
+						usage = {.DEPTH_STENCIL_TARGET},
+					},
+				)
+
+				sdl.SyncWindow(window)
+
 			case .MOUSE_MOTION:
 				Camera_process_mouse_movement(&camera, e.motion.xrel, e.motion.yrel)
 			case:
@@ -224,7 +248,11 @@ main :: proc() {
 
 		// fmt.printfln("camera %v", camera)
 		swapTexture: ^sdl.GPUTexture
-		if sdl.WaitAndAcquireGPUSwapchainTexture(cmdBuf, window, &swapTexture, nil, nil) == false do continue
+		widthU32 := u32(screenWidth)
+		heightU32 := u32(screenHeight)
+
+
+		if sdl.WaitAndAcquireGPUSwapchainTexture(cmdBuf, window, &swapTexture, &widthU32, &heightU32) == false do continue
 
 		colorTargetInfo := sdl.GPUColorTargetInfo {
 			texture     = swapTexture,

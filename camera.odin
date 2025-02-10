@@ -13,7 +13,7 @@ CAMERA_MOVEMENT :: enum {
 DEFAULT_YAW :: -90.0
 DEFAULT_PITCH :: 0
 DEFAULT_SPEED :: .005
-DEFAULT_SENSITIVITY: f32 = 0.1
+DEFAULT_SENSITIVITY: f32 = 0.2
 
 FOV :: 45.0
 worldUp: vec3 : {0, 1, 0}
@@ -49,10 +49,9 @@ Camera_process_keyboard_movement :: proc(c: ^Camera) {
 		movementVector += normalizedRight // Move right
 	}
 
-	velocity := f32(dt) * c.movement_speed
 
 	if linalg.length(movementVector) > 0 {
-		delta := linalg.normalize(movementVector) * velocity
+		delta := linalg.normalize(movementVector) * c.movement_speed * f32(dt)
 		c.pos += vec3{delta.x, 0, delta.z}
 	}
 
