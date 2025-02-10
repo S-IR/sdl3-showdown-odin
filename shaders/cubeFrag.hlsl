@@ -29,6 +29,7 @@ float LinearizeDepth(float depth, float near, float far)
   return ((2.0 * near * far) / (far + near - z * (far - near))) / far;
 }
 #define ambientStrength 0.1
+
 FSOutput main(FSInput input)
 {
   FSOutput result;
