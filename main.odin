@@ -9,13 +9,13 @@ import "core:time"
 import sdl "vendor:sdl3"
 vec3 :: [3]f32
 vec4 :: [4]f32
-GRID_SIZE :: 100
+GRID_SIZE :: 10
 cubes := [GRID_SIZE * GRID_SIZE]CubeInfo{}
 
 CubeInfo :: struct #packed {
-	pos:   vec3,
-	_pad0: f32,
-	col:   vec4,
+	pos: matrix[4, 4]f32,
+	// _pad0: f32,
+	col: vec4,
 }
 
 sdl_panic_if :: proc(cond: bool, message: string = "") {
@@ -30,11 +30,8 @@ sdl_panic_if :: proc(cond: bool, message: string = "") {
 }
 
 main :: proc() {
-
-	width: i32 = 1280
-	height: i32 = 720
 	sdl_panic_if(sdl.Init({.VIDEO}) == false)
-	window = sdl.CreateWindow("Hello triangle", i32(width), i32(height), {.RESIZABLE})
+	window = sdl.CreateWindow("Hello triangle", i32(screenWidth), i32(screenHeight), {.RESIZABLE})
 	defer sdl.DestroyWindow(window)
 
 	device = sdl.CreateGPUDevice({.SPIRV}, true, nil)
@@ -54,6 +51,7 @@ main :: proc() {
 		1,
 		0,
 	)
+
 	sdl_panic_if(vertexShader == nil, "Vertex shader is null")
 	fragmentShader := load_shader(
 		device,
@@ -126,14 +124,13 @@ main :: proc() {
 
 	sdl.ReleaseGPUShader(device, vertexShader)
 	sdl.ReleaseGPUShader(device, fragmentShader)
-
-	sdl.GetWindowSizeInPixels(window, &width, &height)
+	sdl.GetWindowSizeInPixels(window, &screenWidth, &screenHeight)
 	depthTexture := sdl.CreateGPUTexture(
 		device,
 		sdl.GPUTextureCreateInfo {
 			type = .D2,
-			width = u32(width),
-			height = u32(height),
+			width = u32(screenWidth),
+			height = u32(screenHeight),
 			layer_count_or_depth = 1,
 			num_levels = 1,
 			sample_count = ._1,
@@ -159,9 +156,10 @@ main :: proc() {
 	{
 		for x in 0 ..< GRID_SIZE {
 			for z in 0 ..< GRID_SIZE {
+				transformation := linalg.matrix4_translate_f32({f32(x), 0.0, f32(z)})
+
 				cubes[x * GRID_SIZE + z] = CubeInfo {
-					{f32(x), 0, f32(z)},
-					0,
+					transformation,
 					{rand.float32(), rand.float32(), rand.float32(), 1},
 				}
 			}
@@ -189,18 +187,13 @@ main :: proc() {
 
 	}
 	quit := false
-	dt: f64
-	rotationSpeed: f32 = 2.0 // Reduced from 5.0 for smoother rotation
 	lastTime := time.now()
-	radius: f32 = 3.0 // Distance from center
 
-	nearPlane: f32 = 20.0
-	farPlane: f32 = 60.0
-	rotationAngle: f32 = 0.0 // Current rotation angle
 
 	FPS :: 144
 	frameTime := f64(time.Second) / f64(FPS) // Target time per frame in nanoseconds
 	frameDuration := time.Duration(frameTime) // Convert to Duration type
+	camera := Camera_new()
 
 	movementSpeed := 5.0
 	for !quit {
@@ -216,25 +209,20 @@ main :: proc() {
 				if e.key.key == sdl.K_ESCAPE {
 					quit = true
 				}
-
-
+			case .MOUSE_MOTION:
+				Camera_process_mouse_movement(&camera, e.motion.xrel, e.motion.yrel)
 			case:
 				continue
 			}
 		}
-
+		Camera_process_keyboard_movement(&camera)
 		// Update rotation angle based on time
-		rotationAngle += rotationSpeed * f32(dt) * 0.001 // Convert milliseconds to seconds
-
-		// Calculate camera position on a circle
-		cameraX := radius * math.cos(rotationAngle)
-		cameraZ := radius * math.sin(rotationAngle)
-		cameraPos := vec3{cameraX, 30, cameraZ} // Keep Y height constant
 
 		cmdBuf := sdl.AcquireGPUCommandBuffer(device)
 		if cmdBuf == nil do continue
 		defer sdl_panic_if(sdl.SubmitGPUCommandBuffer(cmdBuf) == false)
 
+		// fmt.printfln("camera %v", camera)
 		swapTexture: ^sdl.GPUTexture
 		if sdl.WaitAndAcquireGPUSwapchainTexture(cmdBuf, window, &swapTexture, nil, nil) == false do continue
 
@@ -259,14 +247,7 @@ main :: proc() {
 		renderPass := sdl.BeginGPURenderPass(cmdBuf, &colorTargetInfo, 1, &depthStencilTargetInfo)
 		sdl.BindGPUGraphicsPipeline(renderPass, pipeline)
 
-		view := linalg.matrix4_look_at_f32(cameraPos, {0, 0, 0}, {0, 1, 0})
-		proj := linalg.matrix4_perspective_f32(
-			math.RAD_PER_DEG * 75.0,
-			f32(width) / f32(height),
-			f32(nearPlane),
-			f32(farPlane),
-		)
-
+		Camera_frame_update(&camera, cmdBuf)
 		sdl.BindGPUVertexStorageBuffers(renderPass, 0, &cubesBuffer, 1)
 		sdl.BindGPUVertexBuffers(
 			renderPass,
@@ -276,8 +257,6 @@ main :: proc() {
 		)
 		sdl.BindGPUIndexBuffer(renderPass, {buffer = indicesBuffer, offset = 0}, ._16BIT)
 
-		transforms: [2]matrix[4, 4]f32 = {view, proj}
-		sdl.PushGPUVertexUniformData(cmdBuf, 0, raw_data(&transforms), size_of(transforms))
 
 		planes := [2]f32{nearPlane, farPlane}
 		sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
