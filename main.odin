@@ -156,7 +156,7 @@ main :: proc() {
 	{
 		for x in 0 ..< GRID_SIZE {
 			for z in 0 ..< GRID_SIZE {
-				transformation := linalg.matrix4_translate_f32({f32(x), 0.0, f32(z)})
+				transformation := linalg.matrix4_translate_f32({f32(x), -1.0, f32(z)})
 
 				cubes[x * GRID_SIZE + z] = CubeInfo {
 					transformation,
