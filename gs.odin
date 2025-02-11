@@ -7,6 +7,6 @@ window: ^sdl.Window
 screenWidth: i32 = 1920
 screenHeight: i32 = 1080
 
-nearPlane: f32 : 20.0
-farPlane: f32 : 60.0
+nearPlane: f32 : 0.2
+farPlane: f32 : 160.0
 dt: f64

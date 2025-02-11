@@ -1,13 +1,13 @@
 
-cbuffer UBO : register(b0, space3)
-{
-  float NearPlane;
-  float FarPlane;
-};
+// cbuffer UBO : register(b0, space3)
+// {
+//   float NearPlane;
+//   float FarPlane;
+// };
 struct Output
 {
   float4 Color : SV_Target0;
-  float Depth : SV_Depth;
+  // float Depth : SV_Depth;
 };
 
 float LinearizeDepth(float depth, float near, float far)
@@ -21,6 +21,6 @@ Output main(float4 Color : TEXCOORD0, float4 Position : SV_Position)
   Output result;
 
   result.Color = float4(1, 1, 1, 1);
-  result.Depth = LinearizeDepth(Position.z, NearPlane, FarPlane);
+  // result.Depth = LinearizeDepth(Position.z, NearPlane, FarPlane);
   return result;
 }
