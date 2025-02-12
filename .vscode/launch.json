@@ -1,14 +1,14 @@
-{
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "type": "cppvsdbg",
-            "request": "launch",
-            "preLaunchTask": "Build",
-            "name": "Debug",
-            "program": "${workspaceFolder}/build/debug.exe",
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        }
-    ]
-}
+// {
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "type": "lldb",
+//             "request": "launch",
+//             "preLaunchTask": "Build",
+//             "name": "Debug",
+//             "program": "${workspaceFolder}/build/debug.exe",
+//             "args": [],
+//             "cwd": "${workspaceFolder}"
+//         }
+//     ]
+// }

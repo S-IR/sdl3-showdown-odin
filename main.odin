@@ -9,7 +9,16 @@ import "core:time"
 import sdl "vendor:sdl3"
 vec3 :: [3]f32
 vec4 :: [4]f32
-GRID_SIZE :: 4
+GRID_SIZE :: 20
+
+
+lightings := [?]LightInfo {
+	{pos = {rand.float32() * 10, rand.float32() * 10, rand.float32() * 10}, color = {1, 1, 1, 1}},
+	{pos = {rand.float32() * 10, rand.float32() * 10, rand.float32() * 10}, color = {1, 1, 1, 1}},
+	{pos = {rand.float32() * 10, rand.float32() * 10, rand.float32() * 10}, color = {1, 1, 1, 1}},
+	{pos = {rand.float32() * 10, rand.float32() * 10, rand.float32() * 10}, color = {1, 1, 1, 1}},
+}
+
 cubes := [GRID_SIZE * GRID_SIZE]CubeInfo{}
 
 CubeInfo :: struct #packed {
@@ -69,12 +78,15 @@ main :: proc() {
 	)
 
 	sdl_panic_if(vertexShader == nil, "Vertex shader is null")
+
+	fragUniformCount: u32 = 2
+	fragStorageCount: u32 = 1
 	fragmentShader := load_shader(
 		device,
 		filepath.join({"resources", "shader-binaries", "cube.frag.spv"}),
 		0,
-		2,
-		0,
+		fragUniformCount,
+		fragStorageCount,
 		0,
 	)
 	sdl_panic_if(fragmentShader == nil, "Frag shader is null")
@@ -202,17 +214,12 @@ main :: proc() {
 	}
 
 
-	lighting: LightInfo = {
-		pos   = {5, 5, 5},
-		color = {1, 1, 1, 1},
-	}
-
-	lightCubeBuffer := sdl.CreateGPUBuffer(
+	lightsSBO := sdl.CreateGPUBuffer(
 		device,
 		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(cubes)},
 	)
-	defer sdl.ReleaseGPUBuffer(device, lightCubeBuffer)
-	load_into_gpu_buffer(lightCubeBuffer, &lighting, size_of(lighting))
+	defer sdl.ReleaseGPUBuffer(device, lightsSBO)
+	load_into_gpu_buffer(lightsSBO, raw_data(&lightings), size_of(lightings))
 
 
 	quit := false
@@ -220,12 +227,14 @@ main :: proc() {
 
 
 	FPS :: 144
-	frameTime := f64(time.Second) / f64(FPS) // Target time per frame in nanoseconds
-	frameDuration := time.Duration(frameTime) // Convert to Duration type
+	frameTime := f64(time.Second) / f64(FPS)
+	frameDuration := time.Duration(frameTime)
 	camera := Camera_new()
 	lightAddDir: f32 = 1
 
 	movementSpeed := 5.0
+
+
 	for !quit {
 		e: sdl.Event
 		frameStart := time.now()
@@ -284,7 +293,9 @@ main :: proc() {
 
 		colorTargetInfo := sdl.GPUColorTargetInfo {
 			texture     = swapTexture,
-			clear_color = {0.3, 0.2, 0.7, 1.0},
+			clear_color = {0.7, 0.7, 0.7, 0.7},
+
+			// clear_color = {0.3, 0.2, 0.7, 1.0},
 			load_op     = .CLEAR,
 			store_op    = .STORE,
 		}
@@ -300,13 +311,15 @@ main :: proc() {
 			stencil_store_op = .STORE,
 		}
 
+
+		//LIGHTING
 		renderPass := sdl.BeginGPURenderPass(cmdBuf, &colorTargetInfo, 1, &depthStencilTargetInfo)
 		{
 
 			sdl.BindGPUGraphicsPipeline(renderPass, lightingPipeline)
 			Camera_frame_update(&camera, cmdBuf)
 
-			sdl.BindGPUVertexStorageBuffers(renderPass, 0, &lightCubeBuffer, 1)
+			sdl.BindGPUVertexStorageBuffers(renderPass, 0, &lightsSBO, 1)
 
 			sdl.BindGPUVertexBuffers(
 				renderPass,
@@ -317,12 +330,18 @@ main :: proc() {
 			sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeIndicesBuffer, offset = 0}, ._16BIT)
 
 			// planes := [2]f32{nearPlane, farPlane}
-			// sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
-
-			sdl.DrawGPUIndexedPrimitives(renderPass, TOTAL_NUMBER_OF_INDICES, 1, 0, 0, 0)
+			sdl.DrawGPUIndexedPrimitives(
+				renderPass,
+				TOTAL_NUMBER_OF_INDICES,
+				len(lightings),
+				0,
+				0,
+				0,
+			)
 
 		}
 
+		//CUBES
 		{
 			sdl.BindGPUGraphicsPipeline(renderPass, cubePipeline)
 			Camera_frame_update(&camera, cmdBuf)
@@ -337,9 +356,6 @@ main :: proc() {
 			sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeIndicesBuffer, offset = 0}, ._16BIT)
 
 
-			// planes := [2]f32{nearPlane, farPlane}
-			// sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
-
 			// lighting.color += f32(dt) * 00.1 * lightAddDir
 			// if lighting.color.x >= 1 {
 			// 	lighting.color = {1, 1, 1, 1}
@@ -352,7 +368,25 @@ main :: proc() {
 			// }
 			// lighting.color[3] = 1
 
-			sdl.PushGPUFragmentUniformData(cmdBuf, 1, &lighting, size_of(lighting))
+			currFragUniforms: u32 = 0
+			sdl.PushGPUFragmentUniformData(cmdBuf, 0, &camera.pos, size_of(vec3))
+			lenOfLightings := u32(len(lightings))
+			sdl.PushGPUFragmentUniformData(cmdBuf, 1, &lenOfLightings, size_of(u32))
+			currFragUniforms += 2
+			assert(fragUniformCount == currFragUniforms)
+
+
+			currFragStorages: u32 = 0
+			sdl.BindGPUFragmentStorageBuffers(
+				renderPass,
+				0,
+				raw_data([]^sdl.GPUBuffer{lightsSBO}),
+				1,
+			)
+			currFragStorages += 1
+			assert(fragStorageCount == currFragStorages)
+
+
 			sdl.DrawGPUIndexedPrimitives(
 				renderPass,
 				TOTAL_NUMBER_OF_INDICES,
@@ -361,6 +395,7 @@ main :: proc() {
 				0,
 				0,
 			)
+
 		}
 
 

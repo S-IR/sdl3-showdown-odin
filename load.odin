@@ -2,11 +2,13 @@ package main
 import "core:fmt"
 import "core:strings"
 import sdl "vendor:sdl3"
+
 load_shader :: proc(
 	device: ^sdl.GPUDevice,
 	shaderPath: string,
 	samplerCount, uniformBufferCount, storageBufferCount, storageTextureCount: u32,
 ) -> ^sdl.GPUShader {
+
 	stage: sdl.GPUShaderStage
 	if strings.contains(shaderPath, ".vert") {
 		stage = .VERTEX
@@ -46,9 +48,12 @@ load_shader :: proc(
 		},
 	)
 
+
 }
 
 load_into_gpu_buffer :: proc(gpuBuffer: ^sdl.GPUBuffer, data: rawptr, size: uint) {
+
+	assert(data != nil && size > 0)
 	transferBuffer := sdl.CreateGPUTransferBuffer(
 		device,
 		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(size)},
@@ -57,6 +62,7 @@ load_into_gpu_buffer :: proc(gpuBuffer: ^sdl.GPUBuffer, data: rawptr, size: uint
 	infoPtr := sdl.MapGPUTransferBuffer(device, transferBuffer, true)
 	sdl.memcpy(infoPtr, data, size)
 	sdl.UnmapGPUTransferBuffer(device, transferBuffer)
+
 
 	uploadCmdBuf := sdl.AcquireGPUCommandBuffer(device)
 	copyPass := sdl.BeginGPUCopyPass(uploadCmdBuf)
