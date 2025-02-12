@@ -13,7 +13,8 @@ cbuffer UBO : register(b0, space1)
 
 struct VSInput
 {
-  float3 inPosition : POSITION;
+  float3 position : TEXCOORD0;
+  float3 normal : TEXCOORD1;
   uint instanceId : SV_InstanceID;
 };
 
@@ -37,7 +38,7 @@ VSOutput main(VSInput input)
 
   output.outColor = cube.color;
 
-  float4 pos = float4(input.inPosition, 1.0);
+  float4 pos = float4(input.position, 1.0);
 
   float4x4 model = TranslationMatrix(cube.position);
 

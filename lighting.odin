@@ -70,14 +70,20 @@ lighting_load :: proc() {
 		},
 		rasterizer_state = {cull_mode = .NONE, fill_mode = .FILL, front_face = .COUNTER_CLOCKWISE},
 		vertex_input_state = {
-			num_vertex_buffers = 1,
+			num_vertex_buffers = 2,
 			vertex_buffer_descriptions = raw_data(
 				[]sdl.GPUVertexBufferDescription {
 					{
 						slot = 0,
 						instance_step_rate = 0,
 						input_rate = .VERTEX,
-						pitch = size_of(Vertex),
+						pitch = size_of(vec3),
+					},
+					{
+						slot = 1,
+						instance_step_rate = 0,
+						input_rate = .VERTEX,
+						pitch = size_of(vec3),
 					},
 				},
 			),
@@ -85,12 +91,7 @@ lighting_load :: proc() {
 			vertex_attributes = raw_data(
 				[]sdl.GPUVertexAttribute {
 					{buffer_slot = 0, format = .FLOAT3, location = 0, offset = 0},
-					{
-						buffer_slot = 0,
-						format = .FLOAT3,
-						location = 1,
-						offset = u32(offset_of(Vertex, normal)),
-					},
+					{buffer_slot = 1, format = .FLOAT3, location = 1, offset = 0},
 				},
 			),
 		},
@@ -107,9 +108,12 @@ lighting_load :: proc() {
 		device,
 		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(cubes)},
 	)
+
+	if cubesVertexNormals == nil || cubesVertexPositions == nil || cubeVertexIndices == nil {
+		init_cube_vertices()
+	}
+
 	load_into_gpu_buffer(lightingSBO, &lightingData, size_of(lightingData))
-
-
 	sdl.ReleaseGPUShader(device, lightingVertexShader)
 	sdl.ReleaseGPUShader(device, lightingFragmentShader)
 
@@ -124,10 +128,15 @@ lighting_render :: proc(cmdBuf: ^sdl.GPUCommandBuffer, renderPass: ^sdl.GPURende
 	sdl.BindGPUVertexBuffers(
 		renderPass,
 		0,
-		raw_data([]sdl.GPUBufferBinding{{buffer = cubesVertexBuffer, offset = 0}}),
-		1,
+		raw_data(
+			[]sdl.GPUBufferBinding {
+				{buffer = cubesVertexPositions, offset = 0},
+				{buffer = cubesVertexNormals, offset = 0},
+			},
+		),
+		2,
 	)
-	sdl.BindGPUIndexBuffer(renderPass, {buffer = cubesIndicesBuffer, offset = 0}, ._16BIT)
+	sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeVertexIndices, offset = 0}, ._16BIT)
 
 	// planes := [2]f32{nearPlane, farPlane}
 	// sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))

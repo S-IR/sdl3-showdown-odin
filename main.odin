@@ -45,27 +45,27 @@ sdl_panic_if :: proc(cond: bool, message: string = "") {
 
 main :: proc() {
 
-	// when ODIN_DEBUG {
-	// 	track: mem.Tracking_Allocator
-	// 	mem.tracking_allocator_init(&track, context.allocator)
-	// 	context.allocator = mem.tracking_allocator(&track)
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
 
-	// 	defer {
-	// 		if len(track.allocation_map) > 0 {
-	// 			fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
-	// 			for _, entry in track.allocation_map {
-	// 				fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-	// 			}
-	// 		}
-	// 		if len(track.bad_free_array) > 0 {
-	// 			fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
-	// 			for entry in track.bad_free_array {
-	// 				fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
-	// 			}
-	// 		}
-	// 		mem.tracking_allocator_destroy(&track)
-	// 	}
-	// }
+		defer {
+			if len(track.allocation_map) > 0 {
+				fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+				for _, entry in track.allocation_map {
+					fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+				}
+			}
+			if len(track.bad_free_array) > 0 {
+				fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+				for entry in track.bad_free_array {
+					fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+				}
+			}
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
 
 
 	sdl_panic_if(sdl.Init({.VIDEO}) == false)
@@ -93,17 +93,34 @@ main :: proc() {
 	)
 
 
-	// dogData, cgltfResult := cgltf.parse_file(
-	// 	{},
-	// 	strings.clone_to_cstring(
-	// 		filepath.join({"resources", "models", "dog.gltf"}),
-	// 		allocator = context.temp_allocator,
-	// 	),
+	// pigFilePath := strings.clone_to_cstring(
+	// 	filepath.join({"resources", "models", "pig", "pig.gltf"}),
+	// 	allocator = context.temp_allocator,
 	// )
-
+	// pigData, cgltfResult := cgltf.parse_file({}, pigFilePath)
 	// if cgltfResult != .success {
-	// 	panic(fmt.tprintf("cfltf did not import the file properly, got: %v"))
+	// 	panic(fmt.tprintf("cfltf did not import the file properly, got: %v", cgltfResult))
 	// }
+	// defer cgltf.free(pigData)
+
+	// cgltfResult = cgltf.load_buffers({}, pigData, pigFilePath)
+	// if cgltfResult != .success {
+	// 	panic(fmt.tprintf("cfltf did not load buffers properly, got: %v", cgltfResult))
+	// }
+
+	// mesh := pigData.meshes[0]
+	// primitive := mesh.primitives[0]
+
+	// for attr, i in primitive.attributes {
+	// 	accessor := attr.data
+	// 	view := accessor.buffer_view
+
+	// 	buffer := view.buffer
+
+
+	// }
+
+
 	cubes_load()
 	defer cubes_cleanup()
 
@@ -135,6 +152,8 @@ main :: proc() {
 	lightingAddDir: f32 = 1
 
 	movementSpeed := 5.0
+
+	free_all(context.temp_allocator)
 	for !quit {
 		defer free_all(context.temp_allocator)
 		e: sdl.Event
