@@ -3,9 +3,13 @@ import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
+import "core:mem"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:time"
+import "vendor:cgltf"
+
 import sdl "vendor:sdl3"
 vec3 :: [3]f32
 vec4 :: [4]f32
@@ -25,6 +29,8 @@ LightInfo :: struct {
 	color: vec4,
 }
 
+camera := Camera_new()
+
 
 sdl_panic_if :: proc(cond: bool, message: string = "") {
 	if cond {
@@ -38,6 +44,30 @@ sdl_panic_if :: proc(cond: bool, message: string = "") {
 }
 
 main :: proc() {
+
+	// when ODIN_DEBUG {
+	// 	track: mem.Tracking_Allocator
+	// 	mem.tracking_allocator_init(&track, context.allocator)
+	// 	context.allocator = mem.tracking_allocator(&track)
+
+	// 	defer {
+	// 		if len(track.allocation_map) > 0 {
+	// 			fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+	// 			for _, entry in track.allocation_map {
+	// 				fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+	// 			}
+	// 		}
+	// 		if len(track.bad_free_array) > 0 {
+	// 			fmt.eprintf("=== %v incorrect frees: ===\n", len(track.bad_free_array))
+	// 			for entry in track.bad_free_array {
+	// 				fmt.eprintf("- %p @ %v\n", entry.memory, entry.location)
+	// 			}
+	// 		}
+	// 		mem.tracking_allocator_destroy(&track)
+	// 	}
+	// }
+
+
 	sdl_panic_if(sdl.Init({.VIDEO}) == false)
 	window = sdl.CreateWindow(
 		"Hello triangle",
@@ -46,118 +76,39 @@ main :: proc() {
 		{.RESIZABLE, .FULLSCREEN},
 	)
 	sdl_panic_if(window == nil)
-	defer sdl.DestroyWindow(window)
 
 	sdl.GetWindowSizeInPixels(window, &screenWidth, &screenHeight)
 
 	device = sdl.CreateGPUDevice({.SPIRV}, true, nil)
 	sdl_panic_if(device == nil)
-	defer sdl.DestroyGPUDevice(device)
+
+	defer {
+		sdl.DestroyWindow(window)
+		sdl.DestroyGPUDevice(device)
+	}
 
 	sdl_panic_if(
 		sdl.ClaimWindowForGPUDevice(device, window) == false,
 		"could not create gpu device",
 	)
 
-	vertexShader := load_shader(
-		device,
-		filepath.join({"resources", "shader-binaries", "cube.vert.spv"}),
-		0,
-		1,
-		1,
-		0,
-	)
 
-	sdl_panic_if(vertexShader == nil, "Vertex shader is null")
-	fragmentShader := load_shader(
-		device,
-		filepath.join({"resources", "shader-binaries", "cube.frag.spv"}),
-		0,
-		2,
-		0,
-		0,
-	)
-	sdl_panic_if(fragmentShader == nil, "Frag shader is null")
+	// dogData, cgltfResult := cgltf.parse_file(
+	// 	{},
+	// 	strings.clone_to_cstring(
+	// 		filepath.join({"resources", "models", "dog.gltf"}),
+	// 		allocator = context.temp_allocator,
+	// 	),
+	// )
 
-	cubePipelineInfo := sdl.GPUGraphicsPipelineCreateInfo {
-		target_info = {
-			num_color_targets         = 1,
-			color_target_descriptions = raw_data(
-				[]sdl.GPUColorTargetDescription {
-					{
-						format = sdl.GetGPUSwapchainTextureFormat(device, window),
-						// blend_state = {
-						// 	enable_blend = true,
-						// 	color_blend_op = .ADD,
-						// 	alpha_blend_op = .ADD,
-						// 	src_color_blendfactor = .SRC_ALPHA,
-						// 	dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
-						// 	src_alpha_blendfactor = .SRC_ALPHA,
-						// 	dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
-						// },
-					},
-				},
-			),
-			has_depth_stencil_target  = true,
-			depth_stencil_format      = .D24_UNORM,
-		},
-		depth_stencil_state = sdl.GPUDepthStencilState {
-			enable_depth_test = true,
-			enable_depth_write = true,
-			enable_stencil_test = false,
-			compare_op = .LESS,
-			write_mask = 0xFF,
-		},
-		rasterizer_state = {cull_mode = .NONE, fill_mode = .FILL, front_face = .COUNTER_CLOCKWISE},
-		vertex_input_state = {
-			num_vertex_buffers = 1,
-			vertex_buffer_descriptions = raw_data(
-				[]sdl.GPUVertexBufferDescription {
-					{
-						slot = 0,
-						instance_step_rate = 0,
-						input_rate = .VERTEX,
-						pitch = size_of(Vertex),
-					},
-				},
-			),
-			num_vertex_attributes = 2,
-			vertex_attributes = raw_data(
-				[]sdl.GPUVertexAttribute {
-					{buffer_slot = 0, format = .FLOAT3, location = 0, offset = 0},
-					{
-						buffer_slot = 0,
-						format = .FLOAT3,
-						location = 1,
-						offset = u32(offset_of(Vertex, normal)),
-					},
-				},
-			),
-		},
-		primitive_type = .TRIANGLELIST,
-		vertex_shader = vertexShader,
-		fragment_shader = fragmentShader,
-	}
-	cubePipeline := sdl.CreateGPUGraphicsPipeline(device, cubePipelineInfo)
-	sdl_panic_if(cubePipeline == nil, "could not create pipeline")
+	// if cgltfResult != .success {
+	// 	panic(fmt.tprintf("cfltf did not import the file properly, got: %v"))
+	// }
+	cubes_load()
+	defer cubes_cleanup()
 
-	sdl.ReleaseGPUShader(device, vertexShader)
-	sdl.ReleaseGPUShader(device, fragmentShader)
-
-
-	lightFragShader := load_shader(
-		device,
-		filepath.join({"resources", "shader-binaries", "lightCube.frag.spv"}),
-		0,
-		1,
-		0,
-		0,
-	)
-	lightCubePipelineInfo := cubePipelineInfo
-	lightCubePipelineInfo.fragment_shader = lightFragShader
-	lightingPipeline := sdl.CreateGPUGraphicsPipeline(device, lightCubePipelineInfo)
-	sdl_panic_if(lightingPipeline == nil, "could not create light cube pipeline")
-	sdl.ReleaseGPUShader(device, lightFragShader)
+	lighting_load()
+	defer lighting_cleanup()
 
 
 	depthTexture := sdl.CreateGPUTexture(
@@ -176,57 +127,16 @@ main :: proc() {
 	defer sdl.ReleaseGPUTexture(device, depthTexture)
 
 
-	cubeVertexBuffer, cubeIndicesBuffer := upload_cube_vertices()
-	defer {
-		sdl.ReleaseGPUBuffer(device, cubeVertexBuffer)
-		sdl.ReleaseGPUBuffer(device, cubeIndicesBuffer)
-	}
-	cubesBuffer := sdl.CreateGPUBuffer(
-		device,
-		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(cubes)},
-	)
-	defer sdl.ReleaseGPUBuffer(device, cubesBuffer)
-
-
-	{
-		for x in 0 ..< GRID_SIZE {
-			for z in 0 ..< GRID_SIZE {
-				cubes[x * GRID_SIZE + z] = CubeInfo {
-					{f32(x) * 2, 0.0, f32(z) * 2},
-					0,
-					{.5, .5, .5, 1},
-				}
-			}
-		}
-		load_into_gpu_buffer(cubesBuffer, raw_data(&cubes), size_of(cubes))
-	}
-
-
-	lighting: LightInfo = {
-		pos   = {5, 5, 5},
-		color = {1, 1, 1, 1},
-	}
-
-	lightCubeBuffer := sdl.CreateGPUBuffer(
-		device,
-		sdl.GPUBufferCreateInfo{usage = {.GRAPHICS_STORAGE_READ}, size = size_of(cubes)},
-	)
-	defer sdl.ReleaseGPUBuffer(device, lightCubeBuffer)
-	load_into_gpu_buffer(lightCubeBuffer, &lighting, size_of(lighting))
-
-
 	quit := false
 	lastTime := time.now()
-
-
 	FPS :: 144
 	frameTime := f64(time.Second) / f64(FPS) // Target time per frame in nanoseconds
 	frameDuration := time.Duration(frameTime) // Convert to Duration type
-	camera := Camera_new()
-	lightAddDir: f32 = 1
+	lightingAddDir: f32 = 1
 
 	movementSpeed := 5.0
 	for !quit {
+		defer free_all(context.temp_allocator)
 		e: sdl.Event
 		frameStart := time.now()
 
@@ -301,67 +211,9 @@ main :: proc() {
 		}
 
 		renderPass := sdl.BeginGPURenderPass(cmdBuf, &colorTargetInfo, 1, &depthStencilTargetInfo)
-		{
 
-			sdl.BindGPUGraphicsPipeline(renderPass, lightingPipeline)
-			Camera_frame_update(&camera, cmdBuf)
-
-			sdl.BindGPUVertexStorageBuffers(renderPass, 0, &lightCubeBuffer, 1)
-
-			sdl.BindGPUVertexBuffers(
-				renderPass,
-				0,
-				raw_data([]sdl.GPUBufferBinding{{buffer = cubeVertexBuffer, offset = 0}}),
-				1,
-			)
-			sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeIndicesBuffer, offset = 0}, ._16BIT)
-
-			// planes := [2]f32{nearPlane, farPlane}
-			// sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
-
-			sdl.DrawGPUIndexedPrimitives(renderPass, TOTAL_NUMBER_OF_INDICES, 1, 0, 0, 0)
-
-		}
-
-		{
-			sdl.BindGPUGraphicsPipeline(renderPass, cubePipeline)
-			Camera_frame_update(&camera, cmdBuf)
-
-			sdl.BindGPUVertexStorageBuffers(renderPass, 0, &cubesBuffer, 1)
-			sdl.BindGPUVertexBuffers(
-				renderPass,
-				0,
-				raw_data([]sdl.GPUBufferBinding{{buffer = cubeVertexBuffer, offset = 0}}),
-				1,
-			)
-			sdl.BindGPUIndexBuffer(renderPass, {buffer = cubeIndicesBuffer, offset = 0}, ._16BIT)
-
-
-			// planes := [2]f32{nearPlane, farPlane}
-			// sdl.PushGPUFragmentUniformData(cmdBuf, 0, raw_data(&planes), size_of(planes))
-
-			// lighting.color += f32(dt) * 00.1 * lightAddDir
-			// if lighting.color.x >= 1 {
-			// 	lighting.color = {1, 1, 1, 1}
-			// 	lightAddDir *= -1
-			// }
-
-			// if lighting.color.x <= 0 {
-			// 	lighting.color = {0, 0, 0, 1}
-			// 	lightAddDir *= -1
-			// }
-			// lighting.color[3] = 1
-
-			sdl.PushGPUFragmentUniformData(cmdBuf, 1, &lighting, size_of(lighting))
-			sdl.DrawGPUIndexedPrimitives(
-				renderPass,
-				TOTAL_NUMBER_OF_INDICES,
-				GRID_SIZE * GRID_SIZE,
-				0,
-				0,
-				0,
-			)
-		}
+		cubes_render(cmdBuf, renderPass)
+		lighting_render(cmdBuf, renderPass)
 
 
 		sdl.EndGPURenderPass(renderPass)

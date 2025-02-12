@@ -49,6 +49,7 @@ load_shader :: proc(
 }
 
 load_into_gpu_buffer :: proc(gpuBuffer: ^sdl.GPUBuffer, data: rawptr, size: uint) {
+	assert(data != nil && size > 0)
 	transferBuffer := sdl.CreateGPUTransferBuffer(
 		device,
 		sdl.GPUTransferBufferCreateInfo{usage = .UPLOAD, size = u32(size)},
